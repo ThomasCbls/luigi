@@ -31,10 +31,13 @@ import java.text.SimpleDateFormat;
 import java.nio.charset.StandardCharsets;
 
 public class PanierActivity extends AppCompatActivity {
+
+    // Liste contenant les titres des films dans le panier
     private final ArrayList<String> list = new ArrayList<>();
-    private PanierAdapter adapter;
+
+    private PanierAdapter adapter;  // Adaptateur personnalisé pour la liste
     private ListView panierListView;
-    private TextView panierMessage;
+    private TextView panierMessage;  // Message si panier vide
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -46,42 +49,42 @@ public class PanierActivity extends AppCompatActivity {
         Button btnRetour = findViewById(R.id.btnRetour);
         Button btnValider = findViewById(R.id.btnValider);
 
-        // Utiliser PanierAdapter au lieu de ArrayAdapter
+        // Adaptateur personnalisé pour afficher le contenu du panier
         adapter = new PanierAdapter(this, list, panierMessage);
         panierListView.setAdapter(adapter);
 
-        // Charger les articles du panier
+        // Charger les films précédemment enregistrés dans le panier
         loadPanier();
 
-        // Ajouter un nouvel article si reçu depuis DetailsDvdActivity
+        // Vérifie si un film a été passé via un Intent (depuis DetailsDvdActivity)
         String newArticle = getIntent().getStringExtra("titre");
         if (newArticle != null && !newArticle.isEmpty()) {
             add(newArticle);
         }
 
-        // Bouton Retour
+        // Bouton retour à la liste des films
         btnRetour.setOnClickListener(v -> {
             Intent intent = new Intent(PanierActivity.this, AfficherListeDvdsActivity.class);
             startActivity(intent);
         });
 
-        // Bouton Valider le panier
+        // Bouton pour valider le panier (envoi à l’API)
         btnValider.setOnClickListener(v -> new ValiderPanierTask().execute());
 
-        checkPanierVide();
+        checkPanierVide(); // Affiche ou masque le message selon le contenu
     }
 
-    // Ajouter un film au panier
+    // Ajoute un film au panier (évite les doublons)
     public void add(String article) {
         if (!list.contains(article)) {
             list.add(article);
-            savePanier();
+            savePanier(); // Sauvegarde le panier
             adapter.notifyDataSetChanged();
         }
         checkPanierVide();
     }
 
-    // Vérifie si le panier est vide
+    // Affiche un message si le panier est vide
     private void checkPanierVide() {
         if (list.isEmpty()) {
             panierMessage.setVisibility(View.VISIBLE);
@@ -90,7 +93,7 @@ public class PanierActivity extends AppCompatActivity {
         }
     }
 
-    // Sauvegarde du panier dans SharedPreferences
+    // Sauvegarde le panier dans SharedPreferences (persistant)
     private void savePanier() {
         SharedPreferences prefs = getSharedPreferences("PanierPrefs", MODE_PRIVATE);
         SharedPreferences.Editor editor = prefs.edit();
@@ -99,7 +102,7 @@ public class PanierActivity extends AppCompatActivity {
         editor.apply();
     }
 
-    // Chargement du panier depuis SharedPreferences
+    // Charge le panier à l’ouverture de l’activité
     private void loadPanier() {
         SharedPreferences prefs = getSharedPreferences("PanierPrefs", MODE_PRIVATE);
         Set<String> panierSet = prefs.getStringSet("panier", new HashSet<>());
@@ -110,33 +113,41 @@ public class PanierActivity extends AppCompatActivity {
         checkPanierVide();
     }
 
-    // Validation du panier (envoi des films à l'API)
+    // Tâche asynchrone qui envoie chaque film à l'API pour validation
     private class ValiderPanierTask extends AsyncTask<Void, Void, Boolean> {
+
         private static final String API_URL = "http://10.0.2.2:8080/toad/rental/add";
         private String errorMessage = "";
 
         @Override
         protected Boolean doInBackground(Void... voids) {
             try {
-                // Vérification et assignation des valeurs par défaut si null
+                // Dates actuelles
                 String rentalDate = new SimpleDateFormat("yyyy-MM-dd").format(new Date());
                 String lastUpdate = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(new Date());
                 String returnDate = "";
 
                 for (String film : list) {
-                    int inventoryId = getInventoryIdForFilm(film);
+                    int inventoryId = getInventoryIdForFilm(film); // ID du film dans le stock
                     if (inventoryId == -1) {
                         errorMessage = "Erreur : inventory_id non trouvé pour " + film;
                         return false;
                     }
-                    int customerId = 1;
-                    int staffId = 1;
 
-                    // Vérifie que les chaînes ne sont pas nulles avant de les encoder
-                    String encodedRentalDate = rentalDate != null ? URLEncoder.encode(rentalDate, "UTF-8") : "";
-                    String encodedLastUpdate = lastUpdate != null ? URLEncoder.encode(lastUpdate, "UTF-8") : "";
-                    String encodedReturnDate = returnDate != null ? URLEncoder.encode(returnDate, "UTF-8") : "";
+                    int customerId = getCustomerId();  // ID de l'utilisateur
+                    if (customerId == -1) {
+                        errorMessage = "Erreur : customer_id non trouvé";
+                        return false;
+                    }
 
+                    int staffId = 1;  // Staff ID par défaut
+
+                    // Encodage des données à envoyer
+                    String encodedRentalDate = URLEncoder.encode(rentalDate, "UTF-8");
+                    String encodedLastUpdate = URLEncoder.encode(lastUpdate, "UTF-8");
+                    String encodedReturnDate = URLEncoder.encode(returnDate, "UTF-8");
+
+                    // Construction des paramètres POST
                     String params = "rental_date=" + encodedRentalDate +
                             "&inventory_id=" + inventoryId +
                             "&customer_id=" + customerId +
@@ -144,6 +155,7 @@ public class PanierActivity extends AppCompatActivity {
                             "&staff_id=" + staffId +
                             "&last_update=" + encodedLastUpdate;
 
+                    // Envoi de la requête POST à l'API
                     URL url = new URL(API_URL);
                     HttpURLConnection connection = (HttpURLConnection) url.openConnection();
                     connection.setRequestMethod("POST");
@@ -157,6 +169,7 @@ public class PanierActivity extends AppCompatActivity {
 
                     int responseCode = connection.getResponseCode();
 
+                    // Vérifie si la réponse est OK
                     if (responseCode != 200 && responseCode != 201) {
                         BufferedReader reader = new BufferedReader(new InputStreamReader(connection.getErrorStream()));
                         StringBuilder response = new StringBuilder();
@@ -170,6 +183,7 @@ public class PanierActivity extends AppCompatActivity {
                     }
                 }
                 return true;
+
             } catch (Exception e) {
                 errorMessage = e.getMessage();
                 Log.e("API_ERROR", "Erreur : " + errorMessage);
@@ -177,10 +191,16 @@ public class PanierActivity extends AppCompatActivity {
             }
         }
 
+        // Récupération du customer_id depuis les préférences
+        private int getCustomerId() {
+            SharedPreferences prefs = getSharedPreferences("UserPrefs", MODE_PRIVATE);
+            return prefs.getInt("customer_id", -1);
+        }
+
+        // Recherche de l’inventory_id correspondant à un titre de film
         private int getInventoryIdForFilm(String filmTitle) {
             try {
-                // Étape 1 : Rechercher dans l'inventaire par titre
-                String inventoryApiUrl = "http://10.0.2.2:8080/toad/inventory/getStockByStore";
+                String inventoryApiUrl = DonneesPartagees.getURLConnexion() + "/toad/inventory/getStockByStore";
                 URL inventoryUrl = new URL(inventoryApiUrl);
                 HttpURLConnection inventoryConnection = (HttpURLConnection) inventoryUrl.openConnection();
                 inventoryConnection.setRequestMethod("GET");
@@ -195,29 +215,25 @@ public class PanierActivity extends AppCompatActivity {
 
                 JSONArray inventoryArray = new JSONArray(inventoryResponse.toString());
 
-                // Parcours des résultats pour trouver le film correspondant
                 for (int i = 0; i < inventoryArray.length(); i++) {
                     JSONObject inventoryJson = inventoryArray.getJSONObject(i);
                     String title = inventoryJson.getString("title");
 
                     if (title.equalsIgnoreCase(filmTitle)) {
-                        int inventoryId = inventoryJson.getInt("filmId"); // Assure-toi que l'ID correct est retourné
-                        Log.d("API_DEBUG", "Inventory ID trouvé pour " + filmTitle + " : " + inventoryId);
-                        return inventoryId;
+                        return inventoryJson.getInt("filmId"); // Assure-toi que c’est bien le bon champ (filmId ou inventoryId ?)
                     }
                 }
 
                 Log.e("API_ERROR", "Inventory ID non trouvé pour " + filmTitle);
                 return -1;
+
             } catch (Exception e) {
                 Log.e("API_ERROR", "Erreur : " + e.getMessage());
                 return -1;
             }
         }
 
-
-
-
+        // Appelé une fois la tâche terminée
         @Override
         protected void onPostExecute(Boolean success) {
             if (success) {
@@ -230,7 +246,7 @@ public class PanierActivity extends AppCompatActivity {
         }
     }
 
-    // Vider le panier après validation
+    // Vide le panier après validation
     private void clearPanier() {
         list.clear();
         savePanier();
